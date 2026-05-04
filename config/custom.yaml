@@ -31,9 +31,21 @@ executor:
   max_paper_num: 20
   source: ["arxiv"]
   use_zotero: false
+  interest_topics:
+    - WAM / World Action Model
+    - action-conditioned world models for embodied agents
+    - world models for robotics and embodied AI
+    - embodied agents that learn from vision-language-action data
+    - robot learning, robot manipulation, and planning with learned world models
+    - LLM agents grounded in perception, action, tools, or environments
   interest_keywords:
+    - WAM
+    - world action model
+    - world action models
     - world model
     - world models
+    - action-conditioned world model
+    - action conditioned world model
     - embodied AI
     - embodied artificial intelligence
     - embodied agent
@@ -51,7 +63,11 @@ executor:
     - language model agents
     - agentic
     - multi-agent
-  require_interest_match: true
+  require_interest_match: false
+  llm_relevance_filter: true
+  llm_relevance_min_score: 7
+  llm_relevance_max_candidates: 50
+  llm_relevance_preview_chars: 6000
   reranker: local
   generate_tldr: true
   generate_affiliations: false

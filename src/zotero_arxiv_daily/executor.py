@@ -11,6 +11,8 @@ from .construct_email import render_email
 from .utils import send_email
 from openai import OpenAI
 from tqdm import tqdm
+import json
+import re
 
 
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
@@ -33,8 +35,13 @@ class Executor:
     def __init__(self, config:DictConfig):
         self.config = config
         self.use_zotero = config.executor.get("use_zotero", True)
+        self.interest_topics = list(config.executor.get("interest_topics") or [])
         self.interest_keywords = list(config.executor.get("interest_keywords") or [])
         self.require_interest_match = config.executor.get("require_interest_match", False)
+        self.llm_relevance_filter = config.executor.get("llm_relevance_filter", False)
+        self.llm_relevance_min_score = config.executor.get("llm_relevance_min_score", 7)
+        self.llm_relevance_max_candidates = config.executor.get("llm_relevance_max_candidates", 50)
+        self.llm_relevance_preview_chars = config.executor.get("llm_relevance_preview_chars", 6000)
         self.include_path_patterns = normalize_path_patterns(config.zotero.include_path, "include_path")
         self.ignore_path_patterns = normalize_path_patterns(config.zotero.ignore_path, "ignore_path")
         self.retrievers = {
@@ -77,6 +84,86 @@ class Executor:
 
         scored_papers.sort(key=lambda item: item[0], reverse=True)
         return [paper for _, paper in scored_papers]
+
+    def get_paper_relevance_context(self, paper) -> str:
+        full_text = paper.full_text or ""
+        if len(full_text) > self.llm_relevance_preview_chars:
+            full_text = full_text[:self.llm_relevance_preview_chars]
+        return (
+            f"Title:\n{paper.title}\n\n"
+            f"Abstract:\n{paper.abstract}\n\n"
+            f"Main content preview:\n{full_text}"
+        )
+
+    def judge_paper_relevance_with_llm(self, paper) -> tuple[bool, float, str]:
+        topics = "\n".join(f"- {topic}" for topic in self.interest_topics)
+        prompt = f"""
+You are selecting arXiv papers for a researcher.
+
+Research interests:
+{topics}
+
+Decide whether the paper is genuinely relevant to these interests. Prefer papers about WAM / World Action Models, action-conditioned world models, embodied AI, robot learning, vision-language-action models, or LLM agents grounded in perception/action/environments.
+
+Return only strict JSON with this schema:
+{{"relevant": true, "score": 0-10, "reason": "one short reason"}}
+
+Paper:
+{self.get_paper_relevance_context(paper)}
+"""
+        response = self.openai_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a precise research-paper relevance judge. Return only valid JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            **self.config.llm.get("generation_kwargs", {}),
+        )
+        content = response.choices[0].message.content or ""
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", content, flags=re.DOTALL)
+            if match is None:
+                raise
+            data = json.loads(match.group(0))
+        score = float(data.get("score", 0))
+        relevant = bool(data.get("relevant", False)) and score >= self.llm_relevance_min_score
+        reason = str(data.get("reason", ""))
+        return relevant, score, reason
+
+    def filter_papers_by_llm_relevance(self, papers):
+        if not self.llm_relevance_filter:
+            return papers
+        if not self.openai_client:
+            logger.warning("LLM relevance filter is enabled, but no LLM API key is configured.")
+            return papers
+        if not self.interest_topics:
+            logger.warning("LLM relevance filter is enabled, but no interest_topics are configured.")
+            return papers
+
+        candidates = papers[:self.llm_relevance_max_candidates]
+        selected = []
+        logger.info(f"Running LLM relevance filter on {len(candidates)} candidate papers.")
+        for paper in tqdm(candidates, desc="Filtering papers with LLM"):
+            try:
+                relevant, score, reason = self.judge_paper_relevance_with_llm(paper)
+            except Exception as exc:
+                logger.warning(f"Failed to judge relevance for {paper.url}: {exc}")
+                continue
+            paper.score = score
+            if relevant:
+                logger.info(f"Selected paper with score {score}: {paper.title} — {reason}")
+                selected.append(paper)
+
+        selected.sort(key=lambda paper: paper.score or 0, reverse=True)
+        logger.info(
+            f"LLM relevance filter selected {len(selected)} / {len(candidates)} papers "
+            f"with minimum score {self.llm_relevance_min_score}."
+        )
+        return selected
 
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
         logger.info("Fetching zotero corpus")
@@ -157,8 +244,9 @@ class Executor:
                 reranked_papers = self.reranker.rerank(all_papers, corpus)
             else:
                 reranked_papers = self.rank_papers_by_interest(all_papers)
+                reranked_papers = self.filter_papers_by_llm_relevance(reranked_papers)
                 if len(reranked_papers) == 0 and not self.config.executor.send_empty:
-                    logger.info("No papers matched interest keywords. No email will be sent.")
+                    logger.info("No papers matched interest filters. No email will be sent.")
                     return
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             if self.openai_client and self.config.executor.get("generate_tldr", True):
