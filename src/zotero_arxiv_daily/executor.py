@@ -33,6 +33,8 @@ class Executor:
     def __init__(self, config:DictConfig):
         self.config = config
         self.use_zotero = config.executor.get("use_zotero", True)
+        self.interest_keywords = list(config.executor.get("interest_keywords") or [])
+        self.require_interest_match = config.executor.get("require_interest_match", False)
         self.include_path_patterns = normalize_path_patterns(config.zotero.include_path, "include_path")
         self.ignore_path_patterns = normalize_path_patterns(config.zotero.ignore_path, "ignore_path")
         self.retrievers = {
@@ -42,6 +44,40 @@ class Executor:
         self.openai_client = None
         if config.llm.api.key:
             self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
+
+    def score_paper_by_interest(self, paper) -> float:
+        title = (paper.title or "").lower()
+        abstract = (paper.abstract or "").lower()
+        score = 0.0
+        for keyword in self.interest_keywords:
+            keyword = keyword.lower().strip()
+            if not keyword:
+                continue
+            score += title.count(keyword) * 3
+            score += abstract.count(keyword)
+        return score
+
+    def rank_papers_by_interest(self, papers):
+        if not self.interest_keywords:
+            return papers
+
+        scored_papers = []
+        for paper in papers:
+            score = self.score_paper_by_interest(paper)
+            paper.score = score if score > 0 else None
+            scored_papers.append((score, paper))
+
+        matched = [(score, paper) for score, paper in scored_papers if score > 0]
+        logger.info(
+            f"Interest keyword matching selected {len(matched)} / {len(scored_papers)} papers "
+            f"using keywords: {self.interest_keywords}"
+        )
+        if self.require_interest_match:
+            scored_papers = matched
+
+        scored_papers.sort(key=lambda item: item[0], reverse=True)
+        return [paper for _, paper in scored_papers]
+
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
         logger.info("Fetching zotero corpus")
         zot = zotero.Zotero(self.config.zotero.user_id, 'user', self.config.zotero.api_key)
@@ -120,7 +156,10 @@ class Executor:
                 logger.info("Reranking papers...")
                 reranked_papers = self.reranker.rerank(all_papers, corpus)
             else:
-                reranked_papers = all_papers
+                reranked_papers = self.rank_papers_by_interest(all_papers)
+                if len(reranked_papers) == 0 and not self.config.executor.send_empty:
+                    logger.info("No papers matched interest keywords. No email will be sent.")
+                    return
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             if self.openai_client and self.config.executor.get("generate_tldr", True):
                 logger.info("Generating TLDR and affiliations...")

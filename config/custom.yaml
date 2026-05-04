@@ -31,6 +31,27 @@ executor:
   max_paper_num: 20
   source: ["arxiv"]
   use_zotero: false
+  interest_keywords:
+    - world model
+    - world models
+    - embodied AI
+    - embodied artificial intelligence
+    - embodied agent
+    - embodied agents
+    - embodied learning
+    - robot learning
+    - robotic learning
+    - robot manipulation
+    - vision-language-action
+    - vision language action
+    - VLA
+    - LLM agent
+    - LLM agents
+    - language model agent
+    - language model agents
+    - agentic
+    - multi-agent
+  require_interest_match: true
   reranker: local
   generate_tldr: true
   generate_affiliations: false
