@@ -32,13 +32,16 @@ def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key:
 class Executor:
     def __init__(self, config:DictConfig):
         self.config = config
+        self.use_zotero = config.executor.get("use_zotero", True)
         self.include_path_patterns = normalize_path_patterns(config.zotero.include_path, "include_path")
         self.ignore_path_patterns = normalize_path_patterns(config.zotero.ignore_path, "ignore_path")
         self.retrievers = {
             source: get_retriever_cls(source)(config) for source in config.executor.source
         }
-        self.reranker = get_reranker_cls(config.executor.reranker)(config)
-        self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
+        self.reranker = get_reranker_cls(config.executor.reranker)(config) if self.use_zotero else None
+        self.openai_client = None
+        if config.llm.api.key:
+            self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
         logger.info("Fetching zotero corpus")
         zot = zotero.Zotero(self.config.zotero.user_id, 'user', self.config.zotero.api_key)
@@ -91,11 +94,16 @@ class Executor:
 
     
     def run(self):
-        corpus = self.fetch_zotero_corpus()
-        corpus = self.filter_corpus(corpus)
-        if len(corpus) == 0:
-            logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
-            return
+        corpus = []
+        if self.use_zotero:
+            corpus = self.fetch_zotero_corpus()
+            corpus = self.filter_corpus(corpus)
+            if len(corpus) == 0:
+                logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
+                return
+        else:
+            logger.info("Zotero mode is disabled. Papers will be delivered by source/category order.")
+
         all_papers = []
         for source, retriever in self.retrievers.items():
             logger.info(f"Retrieving {source} papers...")
@@ -108,13 +116,22 @@ class Executor:
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
         reranked_papers = []
         if len(all_papers) > 0:
-            logger.info("Reranking papers...")
-            reranked_papers = self.reranker.rerank(all_papers, corpus)
+            if self.use_zotero:
+                logger.info("Reranking papers...")
+                reranked_papers = self.reranker.rerank(all_papers, corpus)
+            else:
+                reranked_papers = all_papers
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
-            logger.info("Generating TLDR and affiliations...")
-            for p in tqdm(reranked_papers):
-                p.generate_tldr(self.openai_client, self.config.llm)
-                p.generate_affiliations(self.openai_client, self.config.llm)
+            if self.openai_client and self.config.executor.get("generate_tldr", True):
+                logger.info("Generating TLDR and affiliations...")
+                for p in tqdm(reranked_papers):
+                    p.generate_tldr(self.openai_client, self.config.llm)
+                    if self.config.executor.get("generate_affiliations", True):
+                        p.generate_affiliations(self.openai_client, self.config.llm)
+            else:
+                logger.info("No OpenAI API key provided. Email will use paper abstracts directly.")
+                for p in reranked_papers:
+                    p.tldr = p.abstract
         elif not self.config.executor.send_empty:
             logger.info("No new papers found. No email will be sent.")
             return

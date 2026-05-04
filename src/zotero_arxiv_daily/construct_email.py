@@ -52,7 +52,15 @@ def get_empty_html():
   """
   return block_template
 
-def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affiliations:str=None):
+def get_block_html(title:str, authors:str, rate:str | None, tldr:str, pdf_url:str, affiliations:str=None):
+    affiliation_html = f"<br><i>{affiliations}</i>" if affiliations else ""
+    relevance_html = f"""
+    <tr>
+        <td style="font-size: 14px; color: #333; padding: 8px 0;">
+            <strong>Relevance:</strong> {rate}
+        </td>
+    </tr>
+""" if rate is not None else ""
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -63,15 +71,10 @@ def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affi
     <tr>
         <td style="font-size: 14px; color: #666; padding: 8px 0;">
             {authors}
-            <br>
-            <i>{affiliations}</i>
+            {affiliation_html}
         </td>
     </tr>
-    <tr>
-        <td style="font-size: 14px; color: #333; padding: 8px 0;">
-            <strong>Relevance:</strong> {rate}
-        </td>
-    </tr>
+    {relevance_html}
     <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
             <strong>TLDR:</strong> {tldr}
@@ -85,7 +88,15 @@ def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affi
     </tr>
 </table>
 """
-    return block_template.format(title=title, authors=authors,rate=rate, tldr=tldr, pdf_url=pdf_url, affiliations=affiliations)
+    return block_template.format(
+        title=title,
+        authors=authors,
+        rate=rate,
+        tldr=tldr,
+        pdf_url=pdf_url,
+        affiliation_html=affiliation_html,
+        relevance_html=relevance_html,
+    )
 
 def get_stars(score:float):
     full_star = '<span class="full-star">⭐</span>'
@@ -111,7 +122,7 @@ def render_email(papers:list[Paper]) -> str:
     
     for p in papers:
         #rate = get_stars(p.score)
-        rate = round(p.score, 1) if p.score is not None else 'Unknown'
+        rate = round(p.score, 1) if p.score is not None else None
         author_list = [a for a in p.authors]
         num_authors = len(author_list)
         if num_authors <= 5:
@@ -124,7 +135,7 @@ def render_email(papers:list[Paper]) -> str:
             if len(p.affiliations) > 5:
                 affiliations += ', ...'
         else:
-            affiliations = 'Unknown Affiliation'
+            affiliations = None
         parts.append(get_block_html(p.title, authors, rate, p.tldr, p.pdf_url, affiliations))
 
     content = '<br>' + '</br><br>'.join(parts) + '</br>'

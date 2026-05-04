@@ -1,6 +1,6 @@
 zotero:
-  user_id: ${oc.env:ZOTERO_ID}
-  api_key: ${oc.env:ZOTERO_KEY}
+  user_id: null
+  api_key: null
   include_path: null
   ignore_path: null
 
@@ -13,7 +13,7 @@ email:
 
 llm:
   api:
-    key: ${oc.env:OPENAI_API_KEY}
+    key: ${oc.env:OPENAI_API_KEY,null}
     base_url: ${oc.env:OPENAI_API_BASE,https://api.openai.com/v1}
   generation_kwargs:
     max_tokens: 4096
@@ -30,4 +30,7 @@ executor:
   send_empty: false
   max_paper_num: 20
   source: ["arxiv"]
+  use_zotero: false
   reranker: local
+  generate_tldr: true
+  generate_affiliations: false
