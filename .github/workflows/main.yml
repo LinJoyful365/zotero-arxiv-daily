@@ -2,8 +2,9 @@ name: Send emails daily
 on:
   workflow_dispatch:
   schedule:
-    # 06:00 in Asia/Shanghai. arXiv has no new daily list on weekends/holidays.
-    - cron: '0 22 * * *'
+    # 06:23 in Asia/Shanghai. Avoid the top-of-hour GitHub Actions schedule rush.
+    # arXiv has no new daily list on weekends/holidays.
+    - cron: '23 22 * * *'
 
 jobs:
   calculate-and-send:
