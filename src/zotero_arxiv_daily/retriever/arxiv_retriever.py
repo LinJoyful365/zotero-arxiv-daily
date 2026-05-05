@@ -129,6 +129,11 @@ class ArxivRetriever(BaseRetriever):
         ]
         if self.config.executor.debug:
             all_paper_ids = all_paper_ids[:10]
+        else:
+            max_papers = self.config.source.arxiv.get("max_papers")
+            if max_papers:
+                all_paper_ids = all_paper_ids[:max_papers]
+                logger.info(f"Limited arxiv retrieval to {len(all_paper_ids)} papers")
 
         # Get full information of each paper from arxiv api
         bar = tqdm(total=len(all_paper_ids))
