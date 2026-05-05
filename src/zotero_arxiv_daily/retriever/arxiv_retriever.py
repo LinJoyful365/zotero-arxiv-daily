@@ -15,9 +15,9 @@ import requests
 
 T = TypeVar("T")
 
-DOWNLOAD_TIMEOUT = (10, 60)
-PDF_EXTRACT_TIMEOUT = 180
-TAR_EXTRACT_TIMEOUT = 180
+DOWNLOAD_TIMEOUT = (10, 45)
+PDF_EXTRACT_TIMEOUT = 60
+TAR_EXTRACT_TIMEOUT = 60
 
 
 def _download_file(url: str, path: str) -> None:

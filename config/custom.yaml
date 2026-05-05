@@ -24,12 +24,12 @@ source:
   arxiv:
     category: ["cs.AI", "cs.LG", "cs.CV", "cs.RO", "cs.CL"]
     include_cross_list: true
-    max_papers: 15
+    max_papers: 30
 
 executor:
   debug: ${oc.env:DEBUG,null}
   send_empty: false
-  max_paper_num: 20
+  max_paper_num: 5
   source: ["arxiv"]
   use_zotero: false
   interest_topics:
@@ -66,8 +66,9 @@ executor:
     - multi-agent
   require_interest_match: false
   llm_relevance_filter: true
-  llm_relevance_min_score: 7
-  llm_relevance_max_candidates: 15
+  llm_relevance_min_score: 6
+  llm_relevance_max_candidates: 30
+  llm_relevance_min_results: 3
   llm_relevance_preview_chars: 6000
   reranker: local
   generate_tldr: true

@@ -41,6 +41,7 @@ class Executor:
         self.llm_relevance_filter = config.executor.get("llm_relevance_filter", False)
         self.llm_relevance_min_score = config.executor.get("llm_relevance_min_score", 7)
         self.llm_relevance_max_candidates = config.executor.get("llm_relevance_max_candidates", 50)
+        self.llm_relevance_min_results = config.executor.get("llm_relevance_min_results", 0)
         self.llm_relevance_preview_chars = config.executor.get("llm_relevance_preview_chars", 6000)
         self.include_path_patterns = normalize_path_patterns(config.zotero.include_path, "include_path")
         self.ignore_path_patterns = normalize_path_patterns(config.zotero.ignore_path, "ignore_path")
@@ -146,6 +147,7 @@ Paper:
 
         candidates = papers[:self.llm_relevance_max_candidates]
         selected = []
+        judged = []
         logger.info(f"Running LLM relevance filter on {len(candidates)} candidate papers.")
         for paper in tqdm(candidates, desc="Filtering papers with LLM"):
             try:
@@ -154,14 +156,31 @@ Paper:
                 logger.warning(f"Failed to judge relevance for {paper.url}: {exc}")
                 continue
             paper.score = score
+            judged.append((score, paper, reason))
             if relevant:
                 logger.info(f"Selected paper with score {score}: {paper.title} — {reason}")
                 selected.append(paper)
 
         selected.sort(key=lambda paper: paper.score or 0, reverse=True)
+        if len(selected) < self.llm_relevance_min_results:
+            judged.sort(key=lambda item: item[0], reverse=True)
+            selected_ids = {paper.url for paper in selected}
+            fallback_needed = self.llm_relevance_min_results - len(selected)
+            fallback = [
+                paper for _, paper, _ in judged
+                if paper.url not in selected_ids
+            ][:fallback_needed]
+            if fallback:
+                logger.info(
+                    f"Adding {len(fallback)} fallback papers to guarantee a daily digest "
+                    f"with at least {self.llm_relevance_min_results} papers."
+                )
+                selected.extend(fallback)
+                selected.sort(key=lambda paper: paper.score or 0, reverse=True)
         logger.info(
             f"LLM relevance filter selected {len(selected)} / {len(candidates)} papers "
-            f"with minimum score {self.llm_relevance_min_score}."
+            f"with minimum score {self.llm_relevance_min_score} "
+            f"and fallback minimum {self.llm_relevance_min_results}."
         )
         return selected
 
